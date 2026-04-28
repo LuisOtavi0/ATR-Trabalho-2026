@@ -1,7 +1,7 @@
 import paho.mqtt.client as mqtt
 import time
 
-broker = "mqtt-broker" # Nome do serviço no docker-compose
+broker = "mqtt-broker"
 
 def on_connect(client, userdata, flags, rc):
     print(f"Python conectado com código {rc}")
