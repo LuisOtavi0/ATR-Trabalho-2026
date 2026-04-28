@@ -1,0 +1,30 @@
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: mqtt-broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+    networks:
+      - mqtt-net
+
+  python-client:
+    build: ./simulation-remote
+    container_name: python-client
+    depends_on:
+      - mqtt-broker
+    networks:
+      - mqtt-net
+
+  cpp-client:
+    build: ./robot-cpp
+    container_name: cpp-client
+    depends_on:
+      - mqtt-broker
+    networks:
+      - mqtt-net
+
+networks:
+  mqtt-net:
+    driver: bridge
