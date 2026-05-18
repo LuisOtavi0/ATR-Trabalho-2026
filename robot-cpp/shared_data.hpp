@@ -2,9 +2,8 @@
 #define SHARED_DATA_HPP
 
 #include <mutex>
+#include <condition_variable>
 #include <vector>
-#include <string>
-#include <chrono>
 
 struct LogEntry {
     long long timestamp;
@@ -29,7 +28,6 @@ struct SharedState {
     static const int TAMANHO_FILTRO = 5;
     std::vector<int> historico_lidar;
     double media_movel_teto = 0.0;
-
     double limite_variacao_falha = 15.0;
 
     const double Kp = 10.0; 
@@ -39,7 +37,12 @@ struct SharedState {
     bool i_encoder = false;
     int i_lidar = 0;
 
-    std::mutex mtx;
+    std::mutex mtx_navegacao;
+    std::mutex mtx_sensores;
+    std::mutex mtx_buffer;
+    
+    std::condition_variable cv_camera;
+
     std::vector<LogEntry> buffer_coletor;
 };
 
