@@ -1,30 +1,36 @@
+version: "3.8"
+
 services:
   mqtt-broker:
-    image: eclipse-mosquitto:latest
-    container_name: mqtt-broker
+    image: eclipse-mosquitto:2.0
+    container_name: mqtt_broker_atr
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
     networks:
-      - mqtt-net
+      - rede_inspecao
 
-  python-client:
-    build: ./simulation-remote
-    container_name: python-client
-    depends_on:
-      - mqtt-broker
-    networks:
-      - mqtt-net
-
-  cpp-client:
+  robot-app:
     build: ./robot-cpp
-    container_name: cpp-client
+    container_name: robo_embarcado_cpp
     depends_on:
       - mqtt-broker
-    networks:
-      - mqtt-net
+    network_mode: "host"
+    restart: on-failure
+
+  simulation-app:
+    build: ./simulation-remote
+    container_name: simulador_interface_python
+    depends_on:
+      - mqtt-broker
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    network_mode: "host"
+    restart: on-failure
 
 networks:
-  mqtt-net:
+  rede_inspecao:
     driver: bridge

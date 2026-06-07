@@ -1,8 +1,17 @@
 FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y \
-    build-essential cmake git libssl-dev \
-    libc-ares-dev uuid-dev libpaho-mqtt-dev libpaho-mqttpp-dev
-COPY . /app
+    build-essential \
+    cmake \
+    libzmq3-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
-RUN g++ main.cpp -o mqtt_cpp -lpaho-mqttpp3 -lpaho-mqtt3as
-CMD ["./mqtt_cpp"]
+COPY . .
+
+RUN mkdir build && cd build && cmake .. && make
+
+CMD ["./build/robot_node"]
