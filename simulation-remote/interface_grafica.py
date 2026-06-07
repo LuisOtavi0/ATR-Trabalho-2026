@@ -21,9 +21,9 @@ class InterfaceGrafica:
         self.COR_BOTAO = (52, 152, 219)
         
         # --- FONTES ---
-        self.fonte_p = pygame.font.SysFont("Arial", 14)
-        self.fonte_m = pygame.font.SysFont("Arial", 18, bold=True)
-        self.fonte_g = pygame.font.SysFont("Arial", 24, bold=True)
+        self.fonte_p = pygame.font.Font(None, 20)
+        self.fonte_m = pygame.font.Font(None, 24)
+        self.fonte_g = pygame.font.Font(None, 32)
         
         # --- ÁREA DA CÂMERA (SURFACE DO PYGAME) ---
         self.surface_camera = pygame.Surface((320, 240))

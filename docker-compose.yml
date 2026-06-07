@@ -1,6 +1,7 @@
 version: "3.8"
 
 services:
+  # 1. O Broker de mensagens MQTT (Mosquitto)
   mqtt-broker:
     image: eclipse-mosquitto:2.0
     container_name: mqtt_broker_atr
@@ -8,9 +9,9 @@ services:
       - "1883:1883"
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
-    networks:
-      - rede_inspecao
+    network_mode: "host"
 
+  # 2. O Processo do Robô Embarcado (C++)
   robot-app:
     build: ./robot-cpp
     container_name: robo_embarcado_cpp
@@ -19,6 +20,7 @@ services:
     network_mode: "host"
     restart: on-failure
 
+  # 3. O Processo do Simulador + Interface Gráfica Nativa (Pygame)
   simulation-app:
     build: ./simulation-remote
     container_name: simulador_interface_python
@@ -26,11 +28,10 @@ services:
       - mqtt-broker
     environment:
       - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1 # Desativa compartilhamento de memória MIT-SHM (Culpado pela tela preta)
+      - LIBGL_ALWAYS_SOFTWARE=1 # Garante renderização estável via CPU no WSL
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+    ipc: host # Permite que o contêiner converse direto com a memória gráfica do host
     network_mode: "host"
     restart: on-failure
-
-networks:
-  rede_inspecao:
-    driver: bridge

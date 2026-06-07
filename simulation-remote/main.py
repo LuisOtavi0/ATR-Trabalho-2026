@@ -7,10 +7,12 @@ from comunicacao import GerenciadorComunicacao
 import sys
 
 def main():
+    # 1. Inicializa os módulos do simulador, interface e visão
     interface = InterfaceGrafica()
     simulador = SimuladorFisico()
     yolo = DetectorYOLO()
     
+    # Conecta ao broker MQTT local para a operação remota
     comunicacao = GerenciadorComunicacao(broker_mqtt="localhost", porta_mqtt=1883)
     comunicacao.conectar_mqtt()
 
@@ -23,10 +25,13 @@ def main():
     objetos_ia = []
     e_inspecao_ativa = False
 
-    print("[SIMULADOR] Loop principal iniciado. Aguardando conexão do Robô C++...")
+    print("[SIMULADOR] Loop principal iniciado. Conectando via IPC ao Robô C++...")
 
     # --- LOOP PRINCIPAL DE TEMPO REAL (Executa a 50 Hz -> Período de 20ms) ---
     while executando:
+        # =========================================================================
+        # PASSO A: PROCESSAMENTO DE EVENTOS E INTERACTION (IHM)
+        # =========================================================================
         botoes_ihm = interface.desenhar_painel_controle()
         
         for evento in pygame.event.get():
@@ -36,6 +41,7 @@ def main():
             elif evento.type == pygame.MOUSEBUTTONDOWN:
                 pos_mouse = pygame.mouse.get_pos()
                 
+                # Encaminhamento de comandos via Broker MQTT
                 if botoes_ihm["AUTO"].collidepoint(pos_mouse):
                     comunicacao.comandos_remotos["c_automatico"] = True
                     comunicacao.comandos_remotos["c_man"] = False
@@ -57,42 +63,48 @@ def main():
                     comunicacao.comandos_remotos["j_sp_velocidade"] = max(0, comunicacao.comandos_remotos["j_sp_velocidade"] - 1)
                     comunicacao.cliente_mqtt.publish("robo/comando/j_sp_velocidade", str(comunicacao.comandos_remotos["j_sp_velocidade"]))
 
-        # B. Coleta dados atuais dos sensores simulados
+        # =========================================================================
+        # PASSO B: RENDERIZAÇÃO GRÁFICA IMEDIATA (Evita o congelamento de tela)
+        # =========================================================================
+        # Coleta a última leitura estática para desenhar o frame atual
         leitura_lidar = simulador.ler_sensor_lidar()
         
-        # C. IPC via ZeroMQ: Envia sensores ao robô C++ e recebe a atuação do motor (o_aceleracao)
-        # Montamos o dicionário replicando exatamente as variáveis que o robô C++ espera ler
+        # Atualiza a tela gráfica antes de travar no socket de rede
+        interface.desenhar_ambiente(simulador, leitura_lidar, e_inspecao_ativa)
+        interface.renderizar_frame_yolo(frame_camera, objetos_ia)
+        interface.atualizar_painel_dados(simulador, comunicacao.comandos_remotos, log_recente)
+        interface.atualizar_tela() # Inverte os buffers (Double Buffering) na GPU do host
+
+        # =========================================================================
+        # PASSO C: COMUNICAÇÃO DE TEMPO REAL SÍNCRONA (Duto IPC via ZeroMQ)
+        # =========================================================================
         dados_para_robo = {
             "i_lidar": leitura_lidar,
-            "i_encoder": (int(simulador.posicao_x) % 2 == 0) # Simula variação de borda do encoder
+            "i_encoder": (int(simulador.posicao_x) % 2 == 0)
         }
         
-        # Troca síncrona bloqueante via ZMQ
+        # Ponto de sincronismo bloqueante: Aguarda a execução da tarefa cíclica do C++
         o_aceleracao = comunicacao.trocar_dados_ipc(dados_para_robo)
 
-        # D. Atualiza a física do robô com a aceleração calculada pelo PID do C++
+        # =========================================================================
+        # PASSO D: DINÂMICA FÍSICA E INTELICÊNCIA ARTIFICIAL INCORPORADA
+        # =========================================================================
+        # Atualiza o modelo matemático de estados base com a atuação calculada pelo C++
         aceleracao_real = simulador.atualizar_fisica(o_aceleracao, dt=0.020)
         
-        # E. Processamento de Visão Computacional / YOLO (BÔNUS)
-        # Simulamos que o robô C++ avisa via MQTT/ZMQ quando liga a câmera. 
-        # No nosso laço, se o LIDAR detectar variação severa, ativamos a inspeção:
+        # Dispara a inferência computacional pesada (YOLOv8) sob demanda geométrica
         variacao_teto = abs(simulador.altura_nominal_teto - leitura_lidar)
-        if variacao_teto > 15.0: # Mesmo limite configurado no C++
+        if variacao_teto > 15.0:
             e_inspecao_ativa = True
-            # Ativa a inferência pesada do YOLO
             frame_camera, objetos_ia = yolo.processar_inspecao_visual(simulador.posicao_x, leitura_lidar)
         else:
             e_inspecao_ativa = False
             frame_camera = None
             objetos_ia = []
 
-        # F. Atualização Gráfica da IHM
-        interface.desenhar_ambiente(simulador, leitura_lidar, e_inspecao_ativa)
-        interface.renderizar_frame_yolo(frame_camera, objetos_ia)
-        interface.atualizar_painel_dados(simulador, comunicacao.comandos_remotos, log_recente)
-        interface.atualizar_tela()
-
-        # G. Publica telemetria simulando o Coletor de Dados via MQTT para a central
+        # =========================================================================
+        # PASSO E: SÍNTESE E ENVIO DE TELEMETRIA (Monitoramento Remoto)
+        # =========================================================================
         log_recente = {
             "timestamp": int(time.time() * 1000),
             "x": simulador.posicao_x,
@@ -101,10 +113,10 @@ def main():
         }
         comunicacao.publicar_telemetria(log_recente)
 
-        # Força o laço a rodar rigidamente a 50 Hz (20ms por ciclo), garantindo estabilidade temporal
+        # Restringe rigidamente a taxa de amostragem do simulador a 50 Hz
         clock.tick(50)
 
-    # Finalização limpa do sistema ao sair do laço
+    # Finalização limpa e devolução de recursos para o kernel do sistema operacional
     pygame.quit()
     sys.exit()
 

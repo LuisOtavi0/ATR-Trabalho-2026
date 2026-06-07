@@ -1,5 +1,6 @@
 FROM python:3.10-slim
 
+# Instala apenas as dependências gráficas fundamentais do Linux
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglapi-mesa \
@@ -9,15 +10,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Instala a versão leve de CPU do PyTorch e as dependências do ecossistema
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
-RUN pip install --no-cache-dir \
-    pygame \
-    paho-mqtt \
-    pyzmq \
-    ultralytics \
-    opencv-python-headless
+RUN pip install --no-cache-dir pygame paho-mqtt pyzmq ultralytics opencv-python-headless
 
 COPY . .
 
-CMD ["python", "main.py"]
+# Dispara o script principal do Pygame diretamente
+CMD ["python", "-u", "main.py"]
