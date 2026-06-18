@@ -4,28 +4,32 @@
 #include "shared_data.hpp"
 #include "buffer_concorrente.hpp"
 
-// Instância global do estado do robô compartilhada entre as tarefas
+// Forward declaration para evitar incluir mosquitto.h em todo lugar
+struct mosquitto;
+
 extern SharedState state;
-
-// Instância global do buffer concorrente para comunicação Reconstrução -> Coletor
 extern BufferConcorrente buffer_telemetria;
+extern struct mosquitto* g_mqtt_client;
 
-// (Período: 80 ms)
+// (Período: 80 ms) Recebe comandos MQTT e define setpoints
 void task_comando_navegacao();
 
-// (Período: 80 ms)
+// (Período: 80 ms) Controlador PID de velocidade
 void task_controle_navegacao();
 
-// (Período: 20 ms)
+// (Período: 20 ms) Lê encoder para calcular distância percorrida
 void task_calculo_distancia();
 
-// (Período: 100 ms)
+// (Período: 100 ms) Filtro MA + detecção de anomalias + produz no buffer
 void task_reconstrucao_superficie();
 
-// YOLO
+// (Assíncrona) Aguarda cv_camera e executa processamento pesado (YOLO)
 void task_inspecao_camera();
 
-// (Período: 500 ms)
+// (Assíncrona, bloqueante no buffer) Consome buffer, grava disco, publica MQTT
 void task_coletor_dados();
+
+// (Período: 20 ms) Troca dados IPC com o simulador Python via ZeroMQ
+void task_ipc_exchange();
 
 #endif

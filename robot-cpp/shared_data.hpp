@@ -5,53 +5,63 @@
 #include <condition_variable>
 #include <vector>
 
-// Estrutura de dados para o Coletor de Dados
 struct LogEntry {
-    long long timestamp; // Tempo em milissegundos
-    double x;            // Posição horizontal do robô
-    double y;            // Distância medida até o teto
-    double nivel_confianca; // Cálculo online de confiabilidade
+    long long timestamp;
+    double x;
+    double y;
+    double nivel_confianca;
 };
 
-// Estrutura global compartilhada pelas Threads do Robô
 struct SharedState {
     // --- ESTADOS DE OPERAÇÃO ---
-    bool e_automatico = false; // Modos de operação (0: manual, 1: automático)
-    bool e_inspecao = false;   // Indica falha detectada e inspeção ativa
-    
+    bool e_automatico = true;
+    bool e_inspecao   = false;
+
+    // --- ATUADORES ---
+    bool o_liga_camera   = false;
+    double aceleracao_saida = 0.0; // o_aceleracao (-100 a 100%)
+
     // --- DINÂMICA E CONTROLE (PID) ---
-    double setpoint_velocidade = 0.0; // Velocidade desejada
-    double velocidade_atual = 0.0;    // Velocidade real calculada
-    double distancia_total = 0.0;     // Distância acumulada (X)
-    double aceleracao_saida = 0.0;    // Sinal de controle para os motores (-100 a 100%)
+    double setpoint_velocidade = 0.0;
+    double velocidade_atual    = 0.0;
+    double distancia_total     = 0.0;
 
-    double erro_acumulado = 0.0;      // Termo Integrador do PID
-    double erro_anterior = 0.0;       // Termo Derivativo do PID
+    double erro_acumulado = 0.0;
+    double erro_anterior  = 0.0;
 
-    // --- PARÂMETROS DO PID ---
-    const double Kp = 12.0; 
+    const double Kp = 12.0;
     const double Ki = 0.4;
     const double Kd = 0.15;
 
-    // --- DADOS DOS SENSORES EMULADOS ---
-    bool i_encoder = false;           // Altera estado a cada metro
-    int i_lidar = 0;                  // Leitura vertical atual
-    
-    // BÔNUS: Dados do Sensor IMU (Unidade de Medição Inercial)
-    double imu_aceleracao_x = 0.0;    // Aceleração linear no eixo de movimento
-    double imu_angulo_pitch = 0.0;    // Ângulo de inclinação do robô (para detectar declives)
+    // --- DADOS DOS SENSORES (atualizados pelo IPC exchange) ---
+    bool i_encoder = false;
+    int  i_lidar   = 100; // valor padrão razoável até primeira leitura real
+
+    // --- BÔNUS: IMU ---
+    double imu_aceleracao_x = 0.0;
+    double imu_angulo_pitch = 0.0;
 
     // --- RECONSTRUÇÃO DE SUPERFÍCIE ---
     static const int TAMANHO_FILTRO = 5;
-    std::vector<int> historico_lidar; // Janela para o filtro de média móvel
-    double media_movel_teto = 0.0;    // Superfície filtrada
-    double limite_variacao_falha = 15.0; // Parâmetro configurável remotamente
+    std::vector<int> historico_lidar;
+    double media_movel_teto      = 100.0;
+    double limite_variacao_falha = 15.0; // configurável via MQTT
 
-    // --- PRIMITIVAS DE SINCRONIZAÇÃO DE TEMPO REAL (POSIX) ---
-    std::mutex mtx_navegacao;         // Protege variáveis de controle e estado do veículo
-    std::mutex mtx_sensores;          // Protege as leituras vindas do simulador
-    
-    std::condition_variable cv_camera; // Sincronização por evento para a Câmera (YOLO)
+    // --- COMANDOS RECEBIDOS VIA MQTT (protegidos por mtx_mqtt) ---
+    bool c_automatico_cmd  = false;
+    bool c_man_cmd         = false;
+    int  j_sp_velocidade_cmd = 2;
+    bool c_direita_cmd     = false;
+    bool c_esquerda_cmd    = false;
+    bool c_para_cmd        = false;
+    double limite_variacao_novo = -1.0; // -1 = sem alteração pendente
+
+    // --- PRIMITIVAS DE SINCRONIZAÇÃO ---
+    std::mutex mtx_navegacao; // Protege controle, PID, estados de operação
+    std::mutex mtx_sensores;  // Protege leituras de sensores (lidar, encoder)
+    std::mutex mtx_mqtt;      // Protege comandos vindos via MQTT
+
+    std::condition_variable cv_camera; // Aciona task_inspecao_camera
 };
 
 #endif
