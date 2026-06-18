@@ -1,10 +1,11 @@
 import pygame
 import time
+import sys
+import traceback
 from interface_grafica import InterfaceGrafica
 from simulador_fisico import SimuladorFisico
 from detector_yolo import DetectorYOLO
 from comunicacao import GerenciadorComunicacao
-import sys
 
 def main():
     interface   = InterfaceGrafica()
@@ -22,10 +23,14 @@ def main():
     objetos_ia       = []
     e_inspecao_ativa = False
 
-    print("[SIMULADOR] Loop principal iniciado. Aguardando conexao IPC do Robo C++...")
+    print("[SIMULADOR] Loop principal iniciado. Aguardando conexao IPC do Robo C++...", flush=True)
+
+    # Descarta eventos acumulados durante a inicialização (evita QUIT espúrio no SDL2/Windows)
+    pygame.event.clear()
 
     # --- LOOP PRINCIPAL (50 Hz → 20 ms) ---
     while executando:
+      try:
         # =====================================================================
         # A: EVENTOS E INTERFACE
         # =====================================================================
@@ -33,6 +38,7 @@ def main():
 
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
+                print("[SIMULADOR] Evento QUIT recebido — janela fechada pelo usuário.", flush=True)
                 executando = False
 
             elif evento.type == pygame.MOUSEBUTTONDOWN:
@@ -103,7 +109,20 @@ def main():
         # =====================================================================
         # D: DINÂMICA FÍSICA E IA
         # =====================================================================
-        aceleracao_real = simulador.atualizar_fisica(o_aceleracao, dt=0.020)
+        if comunicacao.cpp_conectado:
+            # Modo normal: PID do C++ comanda a física local
+            aceleracao_real = simulador.atualizar_fisica(o_aceleracao, dt=0.020)
+        else:
+            # Modo demo autônomo: sem C++ conectado, move a 2 m/s constante
+            # para demonstrar detecção de anomalias, YOLO e telemetria.
+            simulador.velocidade_x = 2.0
+            simulador.posicao_x   += simulador.velocidade_x * 0.020
+            simulador.angulo_declive_graus = (
+                12.0 if 20.0 <= simulador.posicao_x <= 40.0 else 0.0
+            )
+            if simulador.posicao_x >= 80.0:
+                simulador.posicao_x = 0.0  # reinicia o túnel
+            aceleracao_real = 0.0
 
         # BÔNUS: IMU
         imu_ax, imu_pitch = simulador.ler_sensor_imu(aceleracao_real)
@@ -133,6 +152,11 @@ def main():
         comunicacao.publicar_telemetria(log_recente)
 
         clock.tick(50)  # limita a 50 Hz
+
+      except Exception as e:
+        print(f"[ERRO NO LOOP] {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc(file=sys.stdout)
+        executando = False
 
     pygame.quit()
     sys.exit()

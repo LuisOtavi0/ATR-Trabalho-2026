@@ -42,7 +42,8 @@ class GerenciadorComunicacao:
         self._ultimos_sensores    = {
             "i_lidar": 100, "i_encoder": False, "velocidade": 0.0
         }
-        self._zmq_ativo = False
+        self._zmq_ativo     = False
+        self._cpp_conectado = False  # True após o primeiro msg IPC recebido
 
         # ── ZMQ: socket criado uma vez, usado SOMENTE na thread de background ─
         if ZMQ_DISPONIVEL:
@@ -78,6 +79,7 @@ class GerenciadorComunicacao:
                 req = json.loads(msg)
 
                 with self._lock:
+                    self._cpp_conectado     = True
                     self._ultimo_aceleracao = float(req.get("o_aceleracao", 0.0))
                     sensores_snapshot = dict(self._ultimos_sensores)
 
@@ -101,6 +103,12 @@ class GerenciadorComunicacao:
         """Retorna a última aceleração recebida do C++. Nunca bloqueia."""
         with self._lock:
             return self._ultimo_aceleracao
+
+    @property
+    def cpp_conectado(self) -> bool:
+        """True se pelo menos uma mensagem IPC foi recebida do robô C++."""
+        with self._lock:
+            return self._cpp_conectado
 
     # ── MQTT ──────────────────────────────────────────────────────────────────
 
