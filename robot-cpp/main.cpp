@@ -7,17 +7,11 @@
 #include "buffer_concorrente.hpp"
 #include "tarefas_robo.hpp"
 
-// =============================================================================
-// GLOBAIS COMPARTILHADAS
-// =============================================================================
 SharedState state;
 BufferConcorrente buffer_telemetria(100);
 struct mosquitto* g_mqtt_client = nullptr;
 
-// =============================================================================
-// CALLBACKS MQTT — executados na thread interna do Mosquitto (loop_start)
-// =============================================================================
-static void on_mqtt_connect(struct mosquitto* /*mosq*/, void* /*obj*/, int rc) {
+static void on_mqtt_connect(struct mosquitto*, void*, int rc) {
     if (rc == 0) {
         mosquitto_subscribe(g_mqtt_client, nullptr, "robo/comando/#", 0);
         std::cout << "[MQTT] Conectado ao broker. Inscrito em robo/comando/#" << std::endl;
@@ -26,7 +20,7 @@ static void on_mqtt_connect(struct mosquitto* /*mosq*/, void* /*obj*/, int rc) {
     }
 }
 
-static void on_mqtt_message(struct mosquitto* /*mosq*/, void* /*obj*/,
+static void on_mqtt_message(struct mosquitto*, void*,
                             const struct mosquitto_message* msg) {
     if (!msg->payload || msg->payloadlen == 0) return;
     std::string topic(msg->topic);
@@ -44,7 +38,6 @@ static void on_mqtt_message(struct mosquitto* /*mosq*/, void* /*obj*/,
         try { state.j_sp_velocidade_cmd = std::stoi(payload); } catch (...) {}
 
     } else if (topic.find("direcao") != std::string::npos) {
-        // Payload pode vir como JSON string: "direita" (com aspas)
         std::string dir = payload;
         if (dir.size() >= 2 && dir.front() == '"')
             dir = dir.substr(1, dir.size() - 2);
@@ -57,22 +50,15 @@ static void on_mqtt_message(struct mosquitto* /*mosq*/, void* /*obj*/,
     }
 }
 
-// =============================================================================
-// MAIN
-// =============================================================================
 int main() {
     std::cout << "=================================================" << std::endl;
     std::cout << " SISTEMA EMBARCADO DE INSPEÇÃO DE TÚNEIS — ATR 2026" << std::endl;
     std::cout << "=================================================" << std::endl;
 
-    // --- Estado inicial ---
     state.e_automatico         = true;
     state.limite_variacao_falha = 15.0;
     state.j_sp_velocidade_cmd  = 2;
 
-    // =========================================================================
-    // MQTT: inicialização e conexão ao broker Mosquitto
-    // =========================================================================
     mosquitto_lib_init();
     g_mqtt_client = mosquitto_new("robo_embarcado_cpp", true, nullptr);
     if (!g_mqtt_client) {
@@ -86,15 +72,10 @@ int main() {
             std::cerr << "[MQTT] Broker indisponivel (rc=" << rc
                       << "). Continuando sem MQTT." << std::endl;
         } else {
-            mosquitto_loop_start(g_mqtt_client); // thread de rede MQTT em background
+            mosquitto_loop_start(g_mqtt_client);
         }
     }
 
-    // =========================================================================
-    // HANDSHAKE ZMQ — sincroniza com o simulador Python antes de liberar tasks
-    // O socket de handshake é fechado logo após. A task_ipc_exchange cria seu
-    // próprio socket REQ para a troca contínua de dados (porta 5555).
-    // =========================================================================
     std::cout << "[SISTEMA] Aguardando simulador Python (ZMQ handshake)..." << std::endl;
     try {
         zmq::context_t ctx_hs(1);
@@ -117,22 +98,17 @@ int main() {
             }
         }
         std::cout << "[SISTEMA] Handshake OK — simulador pronto." << std::endl;
-        // sock_hs e ctx_hs destruídos aqui (RAII).
-        // O Python REP fica em estado recv() aguardando a task_ipc_exchange.
     } catch (const std::exception& e) {
         std::cerr << "[ERRO] Handshake falhou: " << e.what() << std::endl;
     }
 
-    // =========================================================================
-    // CRIAÇÃO DAS THREADS DE TEMPO REAL
-    // =========================================================================
-    std::thread t_ipc       (task_ipc_exchange);          // Período: 20 ms
-    std::thread t_odometria (task_calculo_distancia);     // Período: 20 ms
-    std::thread t_controle  (task_controle_navegacao);    // Período: 80 ms
-    std::thread t_comando   (task_comando_navegacao);     // Período: 80 ms
-    std::thread t_recon     (task_reconstrucao_superficie); // Período: 100 ms
-    std::thread t_camera    (task_inspecao_camera);       // Assíncrona (cv)
-    std::thread t_coletor   (task_coletor_dados);         // Assíncrona (buffer)
+    std::thread t_ipc       (task_ipc_exchange);
+    std::thread t_odometria (task_calculo_distancia);
+    std::thread t_controle  (task_controle_navegacao);
+    std::thread t_comando   (task_comando_navegacao);
+    std::thread t_recon     (task_reconstrucao_superficie);
+    std::thread t_camera    (task_inspecao_camera);
+    std::thread t_coletor   (task_coletor_dados);
 
     std::cout << "[SISTEMA] 7 threads de tempo real ativas." << std::endl;
 
@@ -144,7 +120,6 @@ int main() {
     t_camera.join();
     t_coletor.join();
 
-    // Limpeza (inalcançável em sistema embarcado, mas boa prática)
     if (g_mqtt_client) {
         mosquitto_loop_stop(g_mqtt_client, false);
         mosquitto_destroy(g_mqtt_client);

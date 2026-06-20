@@ -1,37 +1,55 @@
-# Sistema de Inspeção Robótica de Túneis - Etapa 1
+# Sistema de Inspeção Robótica de Túneis — Arquitetura de Tempo Real
 
-Este projeto faz parte da disciplina de Automação em Tempo Real da UFMG. O objetivo é desenvolver o software de controle e monitoramento de um robô de inspeção estrutural.
+Este projeto constitui o Trabalho Final da disciplina Automação em Tempo Real (2026/1) do Departamento de Engenharia de Controle e Automação (DELT) da Escola de Engenharia da UFMG. O objetivo é o desenvolvimento de uma aplicação embarcada multitarefa para um robô autônomo de inspeção (Rover) voltado ao mapeamento e detecção de anomalias na integridade estrutural de túneis.
 
-## 🚀 Status da Etapa 1
+## 🚀 Visão Geral do Sistema
 
-Conforme os requisitos, foram implementadas todas as **Tarefas Azuis** (Arquitetura do Robô) utilizando C++ moderno e threads POSIX. O sistema opera de forma multitarefa e concorrente, garantindo os requisitos de periodicidade de tempo real.
+O sistema opera de forma distribuída e concorrente. Toda a inteligência de controle em tempo real (desenvolvida em C++) comunica-se de forma determinística com o Centro de Operação Remota e o Simulador do Ambiente Físico (desenvolvidos em Python) utilizando dois barramentos de rede assíncronos:
 
-## 🛠️ Arquitetura do Sistema
+1. **Inter-Process Communication (IPC):** Realizado via **ZeroMQ (ZMQ)** com arquitetura REP/REQ para troca de dados síncrona de alta frequência (50Hz) entre a simulação física e as threads do robô.
+2. **Rede Distribuída Pub/Sub:** Realizado via **MQTT (Mosquitto)** para envio de telemetria online do robô e recebimento de comandos do operador através do dashboard.
 
-O software é composto por 6 threads principais que se comunicam via memória compartilhada protegida por **Mutexes** (Exclusão Mútua):
+---
 
-| Tarefa                         | Tipo    | Período    | Função Principal                                         |
-| :----------------------------- | :------ | :--------- | :------------------------------------------------------- |
-| **Cálculo de Distância**       | Cíclica | 20ms       | Integração da velocidade e simulação do encoder.         |
-| **Controle de Navegação**      | Cíclica | 80ms       | Algoritmo PID para controle de aceleração/velocidade.    |
-| **Comando de Navegação**       | Cíclica | 80ms       | Gestão de estados (Manual/Automático) e setpoints.       |
-| **Reconstrução de Superfície** | Cíclica | 100ms      | Filtro de Média Móvel e Detecção de Falhas Estruturais.  |
-| **Coletor de Dados**           | Cíclica | 500ms      | Telemetria e persistência em buffer de memória.          |
-| **Inspeção por Câmera**        | Evento  | Aperiódica | Simulação de processamento pesado (CPU Bound) de imagem. |
+## 🛠️ Arquitetura de Software (Núcleo C++)
 
-## 🧪 Funcionalidades Implementadas
+A aplicação embarcada gerencia **7 threads em paralelo** utilizando mecanismos nativos de exclusão mútua (`std::mutex`) e variáveis de condição (`std::condition_variable`) para gerenciar buffers concorrentes e sincronização de eventos:
 
-- **Controle PID:** Ajuste dinâmico da aceleração para manter o setpoint de velocidade.
-- **Filtro Digital:** Média móvel para suavização de ruído nas leituras do sensor LIDAR.
-- **Sincronização RAII:** Uso de `std::lock_guard` para garantir que o acesso aos dados seja thread-safe.
-- **Simulação Estocástica:** Inserção aleatória de falhas (buracos) no teto para teste de robustez da detecção.
+| Módulo / Tarefa | Tipo | Período / Disparo | Função Principal |
+| :--- | :--- | :--- | :--- |
+| **Troca de Dados IPC (`ZMQ`)** | Cíclica | 20ms (50Hz) | Sincronismo de E/S de alta frequência com o simulador físico. |
+| **Cálculo de Distância** | Cíclica | 20ms (50Hz) | Leitura do encoder para cálculo de odometria linear. |
+| **Controle de Navegação** | Cíclica | 80ms (12.5Hz) | Algoritmo PID de velocidade responsável pelo acionamento dos motores. |
+| **Comando de Navegação** | Cíclica | 80ms (12.5Hz) | Gestão de modos (Manual/Automático) e tradução de setpoints. |
+| **Reconstrução de Superfície** | Cíclica | 100ms (10Hz) | Filtro de Média Móvel do LIDAR e detecção de variações severas do teto. |
+| **Inspeção por Câmera** | Evento | Aperiódica | Processamento pesado simulando algoritmo de inteligência incorporada (YOLO). |
+| **Coletor de Dados** | Bloqueante | Consumo FIFO | Análise de confiança online, registro em arquivo .jsonl e pub MQTT. |
 
-## 📦 Como Executar
+---
 
-O projeto utiliza **Docker** para garantir que o ambiente de execução seja idêntico para todos os colaboradores, eliminando problemas de dependências locais.
+## 💡 Recursos Avançados e Otimizações de Tempo Real
 
-1. Certifique-se de ter o Docker e Docker Compose instalados.
-2. Na raiz do projeto, execute:
-   ```bash
-   docker-compose up --build
-   ```
+### Otimizações Críticas de Memória e CPU
+- **Pooling de Texturas no Pygame:** A transferência de imagens do OpenCV para a interface gráfica foi otimizada via `pygame.pixelcopy.array_to_surface`, eliminando a alocação dinâmica de superfícies em tempo de execução. O uso de memória RAM permanece constante e linear.
+- **Yielding Cooperativo:** A thread de processamento pesado da câmera realiza a simulação matemática exigida sem gerar *starvation* (fome de CPU) das rotinas de controle (PID) e rede (ZMQ), cedendo espaço por meio de `std::this_thread::yield()`.
+
+### Recursos Visuais e de Engenharia Civil
+- **Dashboard Industrial Dark Mode:** Interface gráfica unificada dividida em grades simétricas para visualização ergonômica de métricas de telemetria.
+- **Gráfico Dinâmico do LIDAR:** Plotagem vetorial em tempo real da Máscara de Mapeamento 2D do túnel (Perfil de Altura $\times$ Posição Horizontal), mantendo o histórico cumulativo do percurso de forma estável.
+- **Simulação de Túnel com Declive:** Integração física e visual do relevo da pista com a leitura do sensor IMU (Pitch), rotacionando o Rover realisticamente sobre o solo.
+- **Injeção de Bounding Boxes:** Emulação estrutural de Visão Computacional desenhando caixas delimitadoras vermelhas diretamente sobre o feed de imagem ao identificar falhas (Buraco e Saliência).
+
+---
+
+## 📦 Como Compilar e Executar
+
+A solução utiliza **Docker** e **Docker Compose** para orquestrar e isolar as dependências das linguagens e bibliotecas utilitárias (C++, Python, Mosquitto, ZeroMQ).
+
+### Pré-requisitos
+- Docker Desktop instalado e em execução.
+
+### Passo a Passo para Execução Unificada
+Para compilar o núcleo de tempo real, inicializar o broker MQTT local e levantar a interface supervisória com um único comando, execute na raiz do diretório do projeto:
+
+```bash
+docker compose up --build

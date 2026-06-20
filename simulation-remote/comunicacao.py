@@ -10,18 +10,8 @@ except ImportError:
 
 
 class GerenciadorComunicacao:
-    """
-    Gerencia MQTT (operação remota) e ZMQ (IPC com o robô C++).
-
-    CORREÇÃO DE CONGELAMENTO:
-    O recv_string() do ZMQ é 100% bloqueante. Quando chamado diretamente na
-    thread principal do Pygame, congela o loop de eventos se o robô C++ não
-    estiver conectado. A solução é rodar o ZMQ em uma thread daemon separada
-    que usa poll(timeout) — o Pygame nunca mais aguarda I/O de rede.
-    """
 
     def __init__(self, broker_mqtt="localhost", porta_mqtt=1883):
-        # ── MQTT ──────────────────────────────────────────────────────────────
         self.cliente_mqtt   = mqtt.Client(protocol=mqtt.MQTTv311)
         self.broker_mqtt    = broker_mqtt
         self.porta_mqtt     = porta_mqtt
@@ -36,16 +26,14 @@ class GerenciadorComunicacao:
             "c_para":       False,
         }
 
-        # ── ZMQ: estado compartilhado thread-safe ─────────────────────────────
         self._lock                = threading.Lock()
         self._ultimo_aceleracao   = 0.0
         self._ultimos_sensores    = {
             "i_lidar": 100, "i_encoder": False, "velocidade": 0.0
         }
         self._zmq_ativo     = False
-        self._cpp_conectado = False  # True após o primeiro msg IPC recebido
+        self._cpp_conectado = False
 
-        # ── ZMQ: socket criado uma vez, usado SOMENTE na thread de background ─
         if ZMQ_DISPONIVEL:
             self._ctx_zmq   = zmq.Context()
             self._sock_ipc  = self._ctx_zmq.socket(zmq.REP)
@@ -57,23 +45,16 @@ class GerenciadorComunicacao:
                 t.start()
                 print("[IPC] Servidor ZMQ REP escutando em :5555 (thread background).")
             except zmq.ZMQError as e:
-                # Porta já em uso (outro processo, outro container) — modo viewer
                 print(f"[IPC AVISO] Porta 5555 indisponível: {e}")
                 print("[IPC] Operando em modo visualizador (sem IPC ativo).")
                 self._sock_ipc.close()
 
-    # ── THREAD DE BACKGROUND ZMQ ──────────────────────────────────────────────
-
     def _loop_ipc_background(self):
-        """
-        Única thread que toca o socket ZMQ. Usa poll(timeout=100 ms) para
-        nunca bloquear além de 100 ms — mesmo sem cliente C++ conectado.
-        """
+
         while self._zmq_ativo:
             try:
-                # Aguarda mensagem com timeout: retorna 0 se não chegou nada
                 if not self._sock_ipc.poll(timeout=100, flags=zmq.POLLIN):
-                    continue  # nenhum cliente conectado, loop sem bloquear
+                    continue
 
                 msg = self._sock_ipc.recv_string()
                 req = json.loads(msg)
@@ -83,42 +64,33 @@ class GerenciadorComunicacao:
                     self._ultimo_aceleracao = float(req.get("o_aceleracao", 0.0))
                     sensores_snapshot = dict(self._ultimos_sensores)
 
-                # Responde imediatamente com os sensores mais recentes
                 self._sock_ipc.send_string(json.dumps(sensores_snapshot))
 
             except zmq.ZMQError as e:
-                if self._zmq_ativo:   # suprime erros durante shutdown
+                if self._zmq_ativo:
                     print(f"[IPC ERRO ZMQ] {e}")
             except Exception as e:
                 print(f"[IPC ERRO] {e}")
 
-    # ── API NÃO-BLOQUEANTE para a thread principal (Pygame) ───────────────────
-
     def atualizar_sensores_ipc(self, dados_sensores: dict):
-        """Chamado a cada frame: atualiza os sensores que serão enviados ao C++."""
         with self._lock:
             self._ultimos_sensores = dados_sensores
 
     def obter_aceleracao_ipc(self) -> float:
-        """Retorna a última aceleração recebida do C++. Nunca bloqueia."""
         with self._lock:
             return self._ultimo_aceleracao
 
     @property
     def cpp_conectado(self) -> bool:
-        """True se pelo menos uma mensagem IPC foi recebida do robô C++."""
         with self._lock:
             return self._cpp_conectado
 
-    # ── MQTT ──────────────────────────────────────────────────────────────────
-
     def conectar_mqtt(self):
-        """Conecta ao broker MQTT. Falha silenciosa — não interrompe o Pygame."""
         self.cliente_mqtt.on_connect = self._on_connect
         self.cliente_mqtt.on_message = self._on_message
         try:
             self.cliente_mqtt.connect(self.broker_mqtt, self.porta_mqtt, keepalive=60)
-            self.cliente_mqtt.loop_start()   # thread interna do paho
+            self.cliente_mqtt.loop_start()
             self._mqtt_ok = True
             print("[MQTT] Conectado ao broker com sucesso.")
         except Exception as e:
@@ -146,7 +118,6 @@ class GerenciadorComunicacao:
             print(f"[MQTT ERRO] {e}")
 
     def publicar_telemetria(self, log_entry: dict):
-        """Publica no tópico robo/telemetria. Ignora silenciosamente se não conectado."""
         if not self._mqtt_ok:
             return
         try:

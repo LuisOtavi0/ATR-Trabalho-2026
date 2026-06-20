@@ -3,28 +3,20 @@ import random
 
 class SimuladorFisico:
     def __init__(self):
-        self.massa       = 15.0   # kg
-        self.posicao_x   = 0.0    # metros
-        self.velocidade_x = 0.0   # m/s
-        self.atrito_k    = 0.5    # coeficiente de atrito viscoso
-        self.g           = 9.81   # m/s²
+        self.massa       = 15.0
+        self.posicao_x   = 0.0
+        self.velocidade_x = 0.0
+        self.atrito_k    = 0.5
+        self.g           = 9.81
 
-        # --- BÔNUS: Declive ---
         self.angulo_declive_graus = 0.0
 
-        # --- PERFIL DO TETO ---
-        self.altura_nominal_teto = 100.0  # cm
+        self.altura_nominal_teto = 100.0
 
-        # --- ENCODER (estado lógico que alterna a cada metro percorrido) ---
-        # Inicializado com o metro ATUAL da posição inicial para que a primeira
-        # chamada a ler_sensor_encoder() em pos=0 NÃO provoque toggle espúrio.
-        # (Inicializar com -1 causava toggle imediato porque int(0) != -1.)
         self._encoder_state        = False
-        self._encoder_ultimo_metro = int(self.posicao_x)  # = 0 no startup
+        self._encoder_ultimo_metro = int(self.posicao_x)
 
     def atualizar_fisica(self, comando_aceleracao_percentual, dt=0.020):
-        """Aplica leis de Newton F=ma para simular a dinâmica do robô."""
-        # Inclinação baseada em posição (BÔNUS Declive)
         if 20.0 <= self.posicao_x <= 40.0:
             self.angulo_declive_graus = 12.0
         else:
@@ -46,10 +38,6 @@ class SimuladorFisico:
         return aceleracao
 
     def ler_sensor_encoder(self):
-        """
-        Retorna o estado lógico do encoder.
-        Alterna (0→1 ou 1→0) exatamente uma vez a cada metro percorrido.
-        """
         metro_atual = int(self.posicao_x)
         if metro_atual != self._encoder_ultimo_metro:
             self._encoder_state       = not self._encoder_state
@@ -57,21 +45,16 @@ class SimuladorFisico:
         return self._encoder_state
 
     def ler_sensor_imu(self, aceleracao_real):
-        """BÔNUS: Emula IMU com ruído gaussiano."""
         ruido = random.gauss(0.0, 0.05)
         return aceleracao_real + ruido, self.angulo_declive_graus
 
     def ler_sensor_lidar(self):
-        """
-        Simula LIDAR vertical (distância até o teto).
-        Injeta anomalias: buraco (aumento de altura) e saliência (redução).
-        """
         altura_teto = self.altura_nominal_teto
 
         if 10.0 <= self.posicao_x <= 14.0:
-            altura_teto = 150.0   # Buraco: teto mais alto
+            altura_teto = 150.0
         elif 45.0 <= self.posicao_x <= 48.0:
-            altura_teto = 70.0    # Saliência: teto mais baixo
+            altura_teto = 70.0
 
         ruido = random.randint(-2, 2)
         return int(altura_teto + ruido)
